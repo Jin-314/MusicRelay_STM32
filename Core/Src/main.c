@@ -288,7 +288,7 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-//タイマカウント部�?
+
 uint64_t ReadCounter(void)
 {
 	const uint32_t counter1 = m_counter;
@@ -305,14 +305,12 @@ uint64_t ReadCounter(void)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	m_counter++;
 }
-//シリアル受信割り込み処�?
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	//本�?ータ受信部
 	if(uartCnt){
 		uint8_t part;
 		uint64_t lastIdx = 0;
-		//配�?�長�?繰り返してシフト演�?
 		for(uint64_t i = 0; i < dataLen; i++){
 			uint8_t Idx = i - lastIdx;
 			data[i] &= 0x0f;
@@ -347,7 +345,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	HAL_UART_Receive_IT(&huart2, (uint8_t *)data, dataLen);
 	uartCnt++;
 }
-//ノ�?�ト番号を周期に変換
+
 float NoteConvert(uint16_t noteNum){
 	uint64_t tmp = noteNum - 69;
 	double exp = tmp / 12.0;
