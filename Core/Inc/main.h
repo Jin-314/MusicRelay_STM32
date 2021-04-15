@@ -58,10 +58,28 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define Relay6_Pin GPIO_PIN_0
+#define Relay6_GPIO_Port GPIOF
+#define Relay7_Pin GPIO_PIN_1
+#define Relay7_GPIO_Port GPIOF
+#define Relay2_Pin GPIO_PIN_0
+#define Relay2_GPIO_Port GPIOB
+#define Relay5_Pin GPIO_PIN_1
+#define Relay5_GPIO_Port GPIOB
+#define Relay8_Pin GPIO_PIN_8
+#define Relay8_GPIO_Port GPIOA
+#define Relay9_Pin GPIO_PIN_11
+#define Relay9_GPIO_Port GPIOA
 #define Relay1_Pin GPIO_PIN_12
 #define Relay1_GPIO_Port GPIOA
 #define LED_Pin GPIO_PIN_3
 #define LED_GPIO_Port GPIOB
+#define Relay10_Pin GPIO_PIN_5
+#define Relay10_GPIO_Port GPIOB
+#define Relay4_Pin GPIO_PIN_6
+#define Relay4_GPIO_Port GPIOB
+#define Relay3_Pin GPIO_PIN_7
+#define Relay3_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */

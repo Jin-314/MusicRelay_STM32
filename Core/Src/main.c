@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,14 +46,12 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 volatile uint32_t m_counter;
-uint64_t pretime = 0;
 char dataLength[8];
 char data[255];
 char length[10];
-uint8_t interval = 1;
 uint8_t uartCnt = 0;
 uint64_t dataLen;
-uint8_t notes[10] = {0};
+uint16_t notes[10] = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,7 +61,7 @@ static void MX_TIM7_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 uint64_t ReadCounter(void);
-int decoder(uint64_t val);
+float NoteConvert(uint16_t noteNum);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -101,8 +100,11 @@ int main(void)
   MX_TIM7_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  uint64_t pretime[10] = {0};
   HAL_UART_Receive_IT(&huart2, (uint8_t *)dataLength, 8);
   HAL_TIM_Base_Start_IT(&htim7);
+  uint16_t pins[10] = {Relay1_Pin, Relay2_Pin, Relay3_Pin, Relay4_Pin, Relay5_Pin, Relay6_Pin, Relay7_Pin, Relay8_Pin, Relay9_Pin, Relay10_Pin};
+  GPIO_TypeDef* ports[10] = {Relay1_GPIO_Port, Relay2_GPIO_Port, Relay3_GPIO_Port, Relay4_GPIO_Port, Relay5_GPIO_Port, Relay6_GPIO_Port, Relay7_GPIO_Port, Relay8_GPIO_Port, Relay9_GPIO_Port, Relay10_GPIO_Port};
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -113,12 +115,14 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  uint64_t time = ReadCounter();
-	  if(time - pretime < interval * 500000){
-		  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, SET);
-	  }else if(time - pretime < interval * 1000000){
-		  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, RESET);
-	  }else{
-		  pretime = time;
+	  for(int i = 0; i < 10; i++){
+		  if(time - pretime[i] < notes[i] / 2.0){
+			  HAL_GPIO_WritePin(ports[i], pins[i], SET);
+		  }else if(time - pretime[i] < notes[i]){
+			  HAL_GPIO_WritePin(ports[i], pins[i], RESET);
+		  }else{
+			  pretime[i] = time;
+		  }
 	  }
   }
   /* USER CODE END 3 */
@@ -244,33 +248,47 @@ static void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(Relay1_GPIO_Port, Relay1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOF, Relay6_Pin|Relay7_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, Relay2_Pin|Relay5_Pin|LED_Pin|Relay10_Pin
+                          |Relay4_Pin|Relay3_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : Relay1_Pin */
-  GPIO_InitStruct.Pin = Relay1_Pin;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, Relay8_Pin|Relay9_Pin|Relay1_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : Relay6_Pin Relay7_Pin */
+  GPIO_InitStruct.Pin = Relay6_Pin|Relay7_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(Relay1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LED_Pin */
-  GPIO_InitStruct.Pin = LED_Pin;
+  /*Configure GPIO pins : Relay2_Pin Relay5_Pin LED_Pin Relay10_Pin
+                           Relay4_Pin Relay3_Pin */
+  GPIO_InitStruct.Pin = Relay2_Pin|Relay5_Pin|LED_Pin|Relay10_Pin
+                          |Relay4_Pin|Relay3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Relay8_Pin Relay9_Pin Relay1_Pin */
+  GPIO_InitStruct.Pin = Relay8_Pin|Relay9_Pin|Relay1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
 
 /* USER CODE BEGIN 4 */
-
+//タイマカウント部�?
 uint64_t ReadCounter(void)
 {
 	const uint32_t counter1 = m_counter;
@@ -287,11 +305,14 @@ uint64_t ReadCounter(void)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	m_counter++;
 }
+//シリアル受信割り込み処�?
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
+	//本�?ータ受信部
 	if(uartCnt){
 		uint8_t part;
 		uint64_t lastIdx = 0;
+		//配�?�長�?繰り返してシフト演�?
 		for(uint64_t i = 0; i < dataLen; i++){
 			uint8_t Idx = i - lastIdx;
 			data[i] &= 0x0f;
@@ -306,8 +327,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 			}else if(Idx < 13){
 				notes[part] |= data[i] << (12 - Idx);
 			}else{
+				notes[part] = (uint16_t)NoteConvert(notes[part]);
 				lastIdx = i;
 				part = 0;
+			}
+			if(i == dataLen - 1){
+				notes[part] = (uint16_t)NoteConvert(notes[part]);
 			}
 		}
 		uartCnt = 0;
@@ -322,26 +347,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	HAL_UART_Receive_IT(&huart2, (uint8_t *)data, dataLen);
 	uartCnt++;
 }
-
-int decoder(uint64_t val){
-	int decimal = 0;
-	int base = 1;
-	int i = 0;
-	while(val > 0){
-		decimal = decimal + (val % 10) * base;
-		val /= 10;
-		base *= 10;
-		i++;
-	}
-	int tmp = decimal;
-	while(i > 0){
-		length[i - 1] = tmp % 10 + '0';
-		tmp /= 10;
-		i--;
-	}
-	return decimal;
+//ノ�?�ト番号を周期に変換
+float NoteConvert(uint16_t noteNum){
+	uint64_t tmp = noteNum - 69;
+	double exp = tmp / 12.0;
+	double freq = 440 * pow(2.0, exp);
+	double tTime = 1000000.0 / freq;
+	return (float)tTime;
 }
-
 /* USER CODE END 4 */
 
 /**
