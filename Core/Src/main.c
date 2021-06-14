@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <math.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,27 +41,41 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+DAC_HandleTypeDef hdac1;
+DMA_HandleTypeDef hdma_dac1_ch1;
+
 TIM_HandleTypeDef htim7;
 
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-volatile uint32_t m_counter;
 char dataLength[8];
 char data[255];
 char length[10];
 uint8_t uartCnt = 0;
 uint64_t dataLen;
 uint16_t notes[10] = {0};
+
+const double timer_clock = 64e6;
+uint16_t timer_PSC = 0;
+const uint16_t timer_ARR = 16 - 1;
+
+const double sin_offset = 2048;
+const double sin_mag = 1800;
+
+const double pi = 3.1415926535897932384626433832795;
+
+int32_t buffer[10] = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_TIM7_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_DAC1_Init(void);
 /* USER CODE BEGIN PFP */
-uint64_t ReadCounter(void);
 float NoteConvert(uint16_t noteNum);
 /* USER CODE END PFP */
 
@@ -97,14 +112,13 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM7_Init();
   MX_USART2_UART_Init();
+  MX_DAC1_Init();
   /* USER CODE BEGIN 2 */
-  uint64_t pretime[10] = {0};
   HAL_UART_Receive_IT(&huart2, (uint8_t *)dataLength, 8);
   HAL_TIM_Base_Start_IT(&htim7);
-  uint16_t pins[10] = {Relay1_Pin, Relay2_Pin, Relay3_Pin, Relay4_Pin, Relay5_Pin, Relay6_Pin, Relay7_Pin, Relay8_Pin, Relay9_Pin, Relay10_Pin};
-  GPIO_TypeDef* ports[10] = {Relay1_GPIO_Port, Relay2_GPIO_Port, Relay3_GPIO_Port, Relay4_GPIO_Port, Relay5_GPIO_Port, Relay6_GPIO_Port, Relay7_GPIO_Port, Relay8_GPIO_Port, Relay9_GPIO_Port, Relay10_GPIO_Port};
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -114,16 +128,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  uint64_t time = ReadCounter();
-	  for(int i = 0; i < 10; i++){
-		  if(time - pretime[i] < notes[i] / 2.0){
-			  HAL_GPIO_WritePin(ports[i], pins[i], SET);
-		  }else if(time - pretime[i] < notes[i]){
-			  HAL_GPIO_WritePin(ports[i], pins[i], RESET);
-		  }else{
-			  pretime[i] = time;
-		  }
-	  }
+
   }
   /* USER CODE END 3 */
 }
@@ -166,6 +171,44 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief DAC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DAC1_Init(void)
+{
+
+  /* USER CODE BEGIN DAC1_Init 0 */
+
+  /* USER CODE END DAC1_Init 0 */
+
+  DAC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN DAC1_Init 1 */
+
+  /* USER CODE END DAC1_Init 1 */
+  /** DAC Initialization
+  */
+  hdac1.Instance = DAC1;
+  if (HAL_DAC_Init(&hdac1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** DAC channel OUT1 config
+  */
+  sConfig.DAC_Trigger = DAC_TRIGGER_T7_TRGO;
+  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
+  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN DAC1_Init 2 */
+
+  /* USER CODE END DAC1_Init 2 */
+
+}
+
+/**
   * @brief TIM7 Initialization Function
   * @param None
   * @retval None
@@ -183,9 +226,9 @@ static void MX_TIM7_Init(void)
 
   /* USER CODE END TIM7_Init 1 */
   htim7.Instance = TIM7;
-  htim7.Init.Prescaler = 63;
+  htim7.Init.Prescaler = 10-1;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 65535;
+  htim7.Init.Period = 640-1;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
@@ -239,72 +282,36 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
   */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOF, Relay6_Pin|Relay7_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, Relay2_Pin|Relay5_Pin|LED_Pin|Relay10_Pin
-                          |Relay4_Pin|Relay3_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, Relay8_Pin|Relay9_Pin|Relay1_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : Relay6_Pin Relay7_Pin */
-  GPIO_InitStruct.Pin = Relay6_Pin|Relay7_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : Relay2_Pin Relay5_Pin LED_Pin Relay10_Pin
-                           Relay4_Pin Relay3_Pin */
-  GPIO_InitStruct.Pin = Relay2_Pin|Relay5_Pin|LED_Pin|Relay10_Pin
-                          |Relay4_Pin|Relay3_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : Relay8_Pin Relay9_Pin Relay1_Pin */
-  GPIO_InitStruct.Pin = Relay8_Pin|Relay9_Pin|Relay1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
 
 /* USER CODE BEGIN 4 */
 
-uint64_t ReadCounter(void)
-{
-	const uint32_t counter1 = m_counter;
-	const uint32_t CNT1 = TIM7->CNT;
-	const uint32_t counter2 = m_counter;
-	const uint32_t CNT2 = TIM7->CNT;
-
-	if (counter1 == counter2 )
-	  return ( counter1 << 16 ) + CNT1;
-	else
-	  return ( counter2 << 16 ) + CNT2;
-}
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	m_counter++;
-}
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -326,13 +333,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 				notes[part] |= data[i] << (12 - Idx);
 			}else{
 				notes[part] = (uint16_t)NoteConvert(notes[part]);
+				buffer[part] = (int32_t)round(10000/notes[part]);
 				lastIdx = i;
 				part = 0;
 			}
 			if(i == dataLen - 1){
 				notes[part] = (uint16_t)NoteConvert(notes[part]);
+				buffer[part] = (int32_t)round(10000/notes[part]);
 			}
 		}
+
 		uartCnt = 0;
 		HAL_UART_Receive_IT(&huart2, (uint8_t *)dataLength, 8);
 		return;
@@ -350,8 +360,7 @@ float NoteConvert(uint16_t noteNum){
 	uint64_t tmp = noteNum - 69;
 	double exp = tmp / 12.0;
 	double freq = 440 * pow(2.0, exp);
-	double tTime = 1000000.0 / freq;
-	return (float)tTime;
+	return (float)freq;
 }
 /* USER CODE END 4 */
 
