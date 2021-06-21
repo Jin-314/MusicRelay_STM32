@@ -56,15 +56,6 @@ uint8_t uartCnt = 0;
 uint64_t dataLen;
 uint16_t notes[10] = {0};
 
-const double timer_clock = 64e6;
-uint16_t timer_PSC = 0;
-const uint16_t timer_ARR = 16 - 1;
-
-const double sin_offset = 2048;
-const double sin_mag = 1800;
-
-const double pi = 3.1415926535897932384626433832795;
-
 int32_t buffer[10] = {0};
 /* USER CODE END PV */
 
@@ -117,6 +108,17 @@ int main(void)
   MX_USART2_UART_Init();
   MX_DAC1_Init();
   /* USER CODE BEGIN 2 */
+  const double timer_clock = 64e6;
+  const uint16_t timer_PSC = 10 - 1;
+  const uint16_t timer_ARR = 640 - 1;
+
+  const double sin_offset = 2048;
+  const double sin_mag = 1800;
+
+  const double pi = 3.1415926535897932384626433832795;
+
+  int16_t *DAC_buff = malloc(sizeof(int16_t) * buff[0])
+
   HAL_UART_Receive_IT(&huart2, (uint8_t *)dataLength, 8);
   HAL_TIM_Base_Start_IT(&htim7);
   /* USER CODE END 2 */
@@ -127,6 +129,12 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
+	  for(int16_t i = 0; i < buffer[0]; i++){
+		  double a = sin(i / (double)buffer[0] * pi * 2) * sin_mag + sin_offset;
+		  if(a < 0) a = 0;
+		  if(a > 4095)	a = 4095;
+		  DAC
+	  }
     /* USER CODE BEGIN 3 */
 
   }
