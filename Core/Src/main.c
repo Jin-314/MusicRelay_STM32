@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include <math.h>
 #include <stdlib.h>
+#define Num 256
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,7 +43,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 DAC_HandleTypeDef hdac1;
-DMA_HandleTypeDef hdma_dac1_ch1;
 
 TIM_HandleTypeDef htim7;
 
@@ -55,20 +55,25 @@ char length[10];
 uint8_t uartCnt = 0;
 uint64_t dataLen;
 uint16_t notes[10] = {0};
-int32_t buffer[10] = {0};
+double buffer[10] = {0};
+double tmp[10] = {0};
+double sin_table[Num] = {0};
 
 const double timer_clock = 64e6;
 const uint16_t timer_PSC = 10 - 1;
-const uint16_t timer_ARR = 64 - 1;
-uint16_t cnt = 0;
+const uint16_t timer_ARR = 160 - 1;
 uint8_t arrayLen = 0;
 double sampling_rate = timer_clock / (timer_PSC+1)/ (timer_ARR+1);
+
+const double sin_offset = 2048;
+const double sin_mag = 1800;
+
+const double pi = 3.1415926535897932384626433832795;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
 static void MX_TIM7_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_DAC1_Init(void);
@@ -110,46 +115,23 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
   MX_TIM7_Init();
   MX_USART2_UART_Init();
   MX_DAC1_Init();
   /* USER CODE BEGIN 2 */
-
-  const double sin_offset = 2048;
-  const double sin_mag = 1800;
-
-  const double pi = 3.1415926535897932384626433832795;
+  for(uint16_t i = 0; i < Num; i++){
+      sin_table[i] = sin((double)i / Num * 2.0 * pi);
+  }
 
   HAL_UART_Receive_IT(&huart2, (uint8_t *)dataLength, 8);
+  HAL_TIM_Base_Start_IT(&htim7);
+  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	int16_t *DAC_buff = malloc(sizeof(int16_t) * buffer[0]);
-	for (int16_t i = 0; i < buffer[0]; i++){
-		double freq = 0;
-		double sum = 0;
-		for(uint8_t j = 0; j < arrayLen; j++){
-			sum = sin((i + buffer[0] * cnt) / (double)buffer[j] * pi * 2);
-		}
-		if(arrayLen > 0)
-			freq = sin_mag / arrayLen * sum + sin_offset;
-		DAC_buff[i] = (uint16_t)freq;
-	}
-
-	HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)DAC_buff, buffer[0], DAC_ALIGN_12B_R);
-	HAL_TIM_Base_Start(&htim7);
-
-	while(__HAL_DMA_GET_COUNTER(hdac1.DMA_Handle1) > 0){
-		HAL_Delay(1);
-	}
-
-	HAL_TIM_Base_Stop(&htim7);
-	HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-	cnt++;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -221,7 +203,7 @@ static void MX_DAC1_Init(void)
   }
   /** DAC channel OUT1 config
   */
-  sConfig.DAC_Trigger = DAC_TRIGGER_T7_TRGO;
+  sConfig.DAC_Trigger = DAC_TRIGGER_NONE;
   sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
   if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
   {
@@ -253,7 +235,7 @@ static void MX_TIM7_Init(void)
   htim7.Instance = TIM7;
   htim7.Init.Prescaler = 10-1;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 64-1;
+  htim7.Init.Period = 160-1;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
@@ -307,22 +289,6 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -341,7 +307,7 @@ static void MX_GPIO_Init(void)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if(uartCnt){
-		uint8_t part;
+		uint8_t part = 0;
 		uint64_t lastIdx = 0;
 		for(uint64_t i = 0; i < dataLen; i++){
 			uint8_t Idx = i - lastIdx;
@@ -359,17 +325,22 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 				notes[part] |= data[i] << (12 - Idx);
 			}else{
 				notes[part] = (uint16_t)NoteConvert(notes[part]);
-				buffer[part] = (int32_t)round(sampling_rate/notes[part]);
+				buffer[part] = (double)notes[part] * Num / sampling_rate;
 				lastIdx = i;
 				part = 0;
 			}
 			if(i == dataLen - 1){
 				notes[part] = (uint16_t)NoteConvert(notes[part]);
-				buffer[part] = (int32_t)round(sampling_rate/notes[part]);
+				buffer[part] = (double)notes[part] * Num / sampling_rate;
+				if(data[i] == 0){
+					lastIdx = i + 1;
+					notes[part] = 0;
+					buffer[part] = 0;
+					part = 0;
+				}
 			}
 		}
 		SortArray();
-		cnt = 0;
 		uartCnt = 0;
 		HAL_UART_Receive_IT(&huart2, (uint8_t *)dataLength, 8);
 		return;
@@ -384,26 +355,40 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 }
 
 float NoteConvert(uint16_t noteNum){
-	uint64_t tmp = noteNum - 69;
-	double exp = tmp / 12.0;
+	int64_t tmp = noteNum - 69;
+	double exp = (double)tmp / 12.0;
 	double freq = 440 * pow(2.0, exp);
 	return (float)freq;
 }
 void SortArray(){
 	for(uint8_t i = 0; i < 10; i++){
 		if(i<9){
-			if(buffer[i] < buffer[i+1]){
-				uint16_t tmp1 = buffer[i];
-				int32_t tmp2 = notes[i];
-				buffer[i] = buffer[i+1];
-				notes[i] = notes[i+1];
-				buffer[i+1] = tmp1;
-				notes[i+1] = tmp2;
+			for(uint8_t j = i + 1; j < 10; ++j){
+				if(buffer[i] < buffer[j]){
+					double tmp1 = buffer[i];
+					int32_t tmp2 = notes[i];
+					buffer[i] = buffer[j];
+					notes[i] = notes[j];
+					buffer[j] = tmp1;
+					notes[j] = tmp2;
+				}
 			}
 		}
 		if(buffer[9 - i] == 0){
-			arrayLen = i;
+			arrayLen = 9 - i;
 		}
+	}
+}
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+	if(htim == &htim7){
+		double sum = 0;
+		for(uint8_t i = 0; i < arrayLen; i++){
+			tmp[i] += buffer[i];
+			if(tmp[i] > Num) tmp[i] -= Num;
+			sum += sin_table[(int)tmp[i]];
+		}
+		double freq = sin_mag * sum / arrayLen + sin_offset;
+		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (uint16_t)freq);
 	}
 }
 /* USER CODE END 4 */
