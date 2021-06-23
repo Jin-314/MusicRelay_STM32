@@ -55,8 +55,14 @@ char length[10];
 uint8_t uartCnt = 0;
 uint64_t dataLen;
 uint16_t notes[10] = {0};
-
 int32_t buffer[10] = {0};
+
+const double timer_clock = 64e6;
+const uint16_t timer_PSC = 10 - 1;
+const uint16_t timer_ARR = 64 - 1;
+uint16_t cnt = 0;
+uint8_t arrayLen = 0;
+double sampling_rate = timer_clock / (timer_PSC+1)/ (timer_ARR+1);
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -68,6 +74,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_DAC1_Init(void);
 /* USER CODE BEGIN PFP */
 float NoteConvert(uint16_t noteNum);
+void SortArray(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -108,33 +115,43 @@ int main(void)
   MX_USART2_UART_Init();
   MX_DAC1_Init();
   /* USER CODE BEGIN 2 */
-  const double timer_clock = 64e6;
-  const uint16_t timer_PSC = 10 - 1;
-  const uint16_t timer_ARR = 640 - 1;
 
   const double sin_offset = 2048;
   const double sin_mag = 1800;
 
   const double pi = 3.1415926535897932384626433832795;
 
-  int16_t *DAC_buff = malloc(sizeof(int16_t) * buff[0])
-
   HAL_UART_Receive_IT(&huart2, (uint8_t *)dataLength, 8);
-  HAL_TIM_Base_Start_IT(&htim7);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	int16_t *DAC_buff = malloc(sizeof(int16_t) * buffer[0]);
+	for (int16_t i = 0; i < buffer[0]; i++){
+		double freq = 0;
+		double sum = 0;
+		for(uint8_t j = 0; j < arrayLen; j++){
+			sum = sin((i + buffer[0] * cnt) / (double)buffer[j] * pi * 2);
+		}
+		if(arrayLen > 0)
+			freq = sin_mag / arrayLen * sum + sin_offset;
+		DAC_buff[i] = (uint16_t)freq;
+	}
+
+	HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)DAC_buff, buffer[0], DAC_ALIGN_12B_R);
+	HAL_TIM_Base_Start(&htim7);
+
+	while(__HAL_DMA_GET_COUNTER(hdac1.DMA_Handle1) > 0){
+		HAL_Delay(1);
+	}
+
+	HAL_TIM_Base_Stop(&htim7);
+	HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+	cnt++;
     /* USER CODE END WHILE */
 
-	  for(int16_t i = 0; i < buffer[0]; i++){
-		  double a = sin(i / (double)buffer[0] * pi * 2) * sin_mag + sin_offset;
-		  if(a < 0) a = 0;
-		  if(a > 4095)	a = 4095;
-		  DAC
-	  }
     /* USER CODE BEGIN 3 */
 
   }
@@ -236,7 +253,7 @@ static void MX_TIM7_Init(void)
   htim7.Instance = TIM7;
   htim7.Init.Prescaler = 10-1;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 640-1;
+  htim7.Init.Period = 64-1;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
@@ -335,22 +352,24 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 				if(data[i] == 0){
 					lastIdx = i + 1;
 					notes[part] = 0;
+					buffer[part] = 0;
 					part = 0;
 				}
 			}else if(Idx < 13){
 				notes[part] |= data[i] << (12 - Idx);
 			}else{
 				notes[part] = (uint16_t)NoteConvert(notes[part]);
-				buffer[part] = (int32_t)round(10000/notes[part]);
+				buffer[part] = (int32_t)round(sampling_rate/notes[part]);
 				lastIdx = i;
 				part = 0;
 			}
 			if(i == dataLen - 1){
 				notes[part] = (uint16_t)NoteConvert(notes[part]);
-				buffer[part] = (int32_t)round(10000/notes[part]);
+				buffer[part] = (int32_t)round(sampling_rate/notes[part]);
 			}
 		}
-
+		SortArray();
+		cnt = 0;
 		uartCnt = 0;
 		HAL_UART_Receive_IT(&huart2, (uint8_t *)dataLength, 8);
 		return;
@@ -369,6 +388,23 @@ float NoteConvert(uint16_t noteNum){
 	double exp = tmp / 12.0;
 	double freq = 440 * pow(2.0, exp);
 	return (float)freq;
+}
+void SortArray(){
+	for(uint8_t i = 0; i < 10; i++){
+		if(i<9){
+			if(buffer[i] < buffer[i+1]){
+				uint16_t tmp1 = buffer[i];
+				int32_t tmp2 = notes[i];
+				buffer[i] = buffer[i+1];
+				notes[i] = notes[i+1];
+				buffer[i+1] = tmp1;
+				notes[i+1] = tmp2;
+			}
+		}
+		if(buffer[9 - i] == 0){
+			arrayLen = i;
+		}
+	}
 }
 /* USER CODE END 4 */
 
